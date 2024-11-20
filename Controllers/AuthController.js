@@ -2,7 +2,7 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 
-const { UserModel, PatientModel } = require("../Models/User");
+const { UserModel, PatientModel, RecoveryPatientModel } = require("../Models/User");
 const user = require("../Models/signup");
 
 
@@ -64,61 +64,6 @@ const getUserData = async (req, res) => {
 }
 
 
-// Patient Data Filling 
-// const patientDataEntry = async (req, res) => {
-//     try {
-//         const { name, adharNumber, address, age, phoneNumber, symptoms, consultant, email, pincode } = req.body;
-
-//         // Validation: Check Aadhar Number length
-//         if (adharNumber.length !== 12 || isNaN(adharNumber)) {
-//             return res.status(400).json({ message: 'Please provide a valid 12-digit Aadhar Number.', success: false });
-//         }
-
-//         // Validation: Check Phone Number length
-//         if (phoneNumber.length !== 10 || isNaN(phoneNumber)) {
-//             return res.status(400).json({ message: 'Please provide a valid 10-digit Phone Number.', success: false });
-//         }
-
-//         // Check if the user already exists by Aadhar Number
-//         const existingUser = await PatientModel.findOne({ adharNumber });
-//         if (existingUser) {
-//             return res.status(409).json({ message: 'User with this Aadhar Number already exists.', success: false });
-//         }
-
-//         // Create and save new patient data with all address fields (district, state, block)
-//         const newPatient = new PatientModel({
-//             name,
-//             adharNumber,
-//             address: {
-//                 block: address.block, // from the frontend
-//                 district: address.district, // from the frontend
-//                 state: address.state, // from the frontend
-//             },
-//             age,
-//             phoneNumber,
-//             symptoms,
-//             consultant,
-//             email,
-//             pincode, // added pincode
-//         });
-
-//         await newPatient.save();
-
-//         return res.status(201).json({
-//             message: 'Patient data entry successful.',
-//             success: true,
-//         });
-//     } catch (err) {
-//         console.error('Error occurred while saving patient data:', err);
-
-//         return res.status(500).json({
-//             message: 'Internal server error.',
-//             success: false,
-//         });
-//     }
-// };
-
-
 const patientDataEntry = async (req, res) => {
     try {
         const { name, adharNumber, address, age, phoneNumber, symptoms, consultant, email } = req.body;
@@ -160,12 +105,25 @@ const patientDataEntry = async (req, res) => {
         // Schedule deletion after 1 minute
         setTimeout(async () => {
             try {
-                await PatientModel.deleteOne({ _id: newPatient._id });
-                console.log(`Patient record with ID ${newPatient._id} deleted after 1 minute.`);
+                const patient = await PatientModel.findOne({ _id: newPatient._id });
+        
+                if (patient) {
+                    // Save the patient record to RecoveryPatientModel
+                    const recoveryData = new RecoveryPatientModel({
+                        ...patient.toObject(),
+                        deletedAt: new Date(),
+                    });
+                    await recoveryData.save();
+        
+                    // Delete from PatientModel
+                    await PatientModel.deleteOne({ _id: newPatient._id });
+                    console.log(`Patient record with ID ${newPatient._id} moved to recovery after 15 days.`);
+                }
             } catch (err) {
-                console.error('Error deleting patient record:', err);
+                console.error("Error during automatic patient deletion:", err);
             }
-        }, 15*60*60000); 
+        }, 15 * 24 * 60 * 60 * 1000); // 15 days
+        
     } catch (err) {
         console.error('Error:', err);
         res.status(500).json({
@@ -175,33 +133,41 @@ const patientDataEntry = async (req, res) => {
     }
 };
 
-module.exports = { patientDataEntry };
 
 
 // delete a patient by adharNumber
 const deletePatient = async (req, res) => {
-  const adharNumber = req.params.adharNumber; // Get the adharNumber from the URL parameter
+    const adharNumber = req.params.adharNumber;
 
-  try {
-    // Find the patient by adharNumber and delete the record
-    const patient = await PatientModel.findOneAndDelete({ adharNumber });
+    try {
+        // Find the patient by Aadhar Number
+        const patient = await PatientModel.findOne({ adharNumber });
 
-    if (!patient) {
-      return res.status(404).json({ message: "Patient not found" });
+        if (!patient) {
+            return res.status(404).json({ message: "Patient not found" });
+        }
+
+        // Save the deleted patient data to RecoveryPatientModel
+        const recoveryData = new RecoveryPatientModel({
+            ...patient.toObject(), 
+            deletedAt: new Date(),
+        });
+        await recoveryData.save();
+
+        // Delete the patient record from PatientModel
+        await PatientModel.deleteOne({ adharNumber });
+
+        res.status(200).json({
+            message: "Patient deleted successfully and saved to recovery data.",
+            deletedData: recoveryData,
+        });
+    } catch (error) {
+        console.error("Error while deleting patient:", error);
+        res.status(500).json({ message: "Internal server error" });
     }
-
-    // Respond with a success message if the patient is deleted
-    res.status(200).json({ 
-        message: "Patient deleted successfully" ,
-        deletedData: patient
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
-  }
 };
 
-// Automatic delete data
+
 
 
 // Fetch all patient data
@@ -221,6 +187,8 @@ const getAllPatients = async (req, res) => {
         });
     }
 };
+
+
 
 // fetch data by email
 const getPatientsByEmail = async (req, res) => {
@@ -251,6 +219,25 @@ const getPatientsByEmail = async (req, res) => {
 };
 
 
+// Patient Recovery Controller
+const getRecoveryPatients = async (req, res) => {
+    try {
+        const recoveryPatients = await RecoveryPatientModel.find({});
+        res.status(200).json({
+            success: true,
+            data: recoveryPatients,
+        });
+    } catch (error) {
+        console.error("Error fetching recovery patients:", error);
+        res.status(500).json({ success: false, message: "Failed to fetch recovery patient data" });
+    }
+};
+
+module.exports = { getRecoveryPatients };
+
+
+
+
 
 module.exports = {
     // signup,
@@ -259,5 +246,7 @@ module.exports = {
     getAllPatients,
     deletePatient,
     getUserData,
-    getPatientsByEmail
+    getPatientsByEmail,
+    patientDataEntry,
+    getRecoveryPatients
 }

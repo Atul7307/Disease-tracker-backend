@@ -110,11 +110,36 @@ const PatientSchema = new Schema({
 });
 
 
+
+// Patient Recover Data Model
+const RecoveryPatientSchema = new Schema({
+    name: String,
+    adharNumber: String,
+    age: Number,
+    phoneNumber: String,
+    symptoms: String,
+    consultant: String,
+    email: String,
+    pincode: String,
+    address: {
+        block: String,
+        district: String,
+        state: String,
+    },
+    deletedAt: {
+        type: Date,
+        default: Date.now,
+    },
+    originalCreatedAt: Date,
+});
+
 const UserModel = mongoose.models.User || mongoose.model('User', UserSchema);
 const PatientModel = mongoose.models.Patient || mongoose.model('Patient', PatientSchema);
+const RecoveryPatientModel = mongoose.models.RecoveryPatient || mongoose.model('RecoveryPatient', RecoveryPatientSchema);
 
 
 module.exports = {
     UserModel,
-    PatientModel
+    PatientModel,
+    RecoveryPatientModel
 }

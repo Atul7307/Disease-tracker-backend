@@ -28,6 +28,6 @@ app.get('/' , (req , res) =>{
     res.send('server start')
 })
 
-app.get('/patiententry', (req, res) =>{
-    res.send('patient data')
+app.get('/getAllPatients', (req, res) =>{
+    res.send('use auth/getAllPatients for this')
 })
