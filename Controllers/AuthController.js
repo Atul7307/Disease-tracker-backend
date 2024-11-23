@@ -64,6 +64,79 @@ const getUserData = async (req, res) => {
 }
 
 
+// const patientDataEntry = async (req, res) => {
+//     try {
+//         const { name, adharNumber, address, age, phoneNumber, symptoms, consultant, email } = req.body;
+
+//         // Validation for Aadhar and Phone numbers
+//         if (adharNumber.length !== 12) {
+//             return res.status(400).json({ message: 'Invalid Aadhar number', success: false });
+//         }
+
+//         if (phoneNumber.length !== 10) {
+//             return res.status(400).json({ message: 'Invalid phone number', success: false });
+//         }
+
+//         // Check if the user already exists
+//         const userExists = await PatientModel.findOne({ adharNumber });
+//         if (userExists) {
+//             return res.status(409).json({ message: 'User already exists', success: false });
+//         }
+
+//         // Create and save the new patient record
+//         const newPatient = new PatientModel({
+//             name,
+//             adharNumber,
+//             address,
+//             age,
+//             phoneNumber,
+//             symptoms,
+//             consultant,
+//             email,
+//             createdAt: new Date(),
+//         });
+
+//         await newPatient.save();
+//         res.status(201).json({
+//             message: 'Patient data entry successful',
+//             success: true,
+//         });
+
+//         // Schedule deletion after 1 minute
+//         setTimeout(async () => {
+//             try {
+//                 const patient = await PatientModel.findOne({ _id: newPatient._id });
+        
+//                 if (patient) {
+//                     // Save the patient record to RecoveryPatientModel
+//                     const recoveryData = new RecoveryPatientModel({
+//                         ...patient.toObject(),
+//                         deletedAt: new Date(),
+//                     });
+//                     await recoveryData.save();
+        
+//                     // Delete from PatientModel
+//                     await PatientModel.deleteOne({ _id: newPatient._id });
+//                     console.log(`Patient record with ID ${newPatient._id} moved to recovery after 15 days.`);
+//                 }
+//             } catch (err) {
+//                 console.error("Error during automatic patient deletion:", err);
+//             }
+//         }, 15 * 24 * 60 * 60 * 1000); // 15 days
+        
+//     } catch (err) {
+//         console.error('Error:', err);
+//         res.status(500).json({
+//             message: 'Internal server error',
+//             success: false,
+//         });
+//     }
+// };
+
+
+const cron = require('node-cron');
+
+// Patient data entry function
 const patientDataEntry = async (req, res) => {
     try {
         const { name, adharNumber, address, age, phoneNumber, symptoms, consultant, email } = req.body;
@@ -101,29 +174,6 @@ const patientDataEntry = async (req, res) => {
             message: 'Patient data entry successful',
             success: true,
         });
-
-        // Schedule deletion after 1 minute
-        setTimeout(async () => {
-            try {
-                const patient = await PatientModel.findOne({ _id: newPatient._id });
-        
-                if (patient) {
-                    // Save the patient record to RecoveryPatientModel
-                    const recoveryData = new RecoveryPatientModel({
-                        ...patient.toObject(),
-                        deletedAt: new Date(),
-                    });
-                    await recoveryData.save();
-        
-                    // Delete from PatientModel
-                    await PatientModel.deleteOne({ _id: newPatient._id });
-                    console.log(`Patient record with ID ${newPatient._id} moved to recovery after 15 days.`);
-                }
-            } catch (err) {
-                console.error("Error during automatic patient deletion:", err);
-            }
-        }, 15 * 24 * 60 * 60 * 1000); // 15 days
-        
     } catch (err) {
         console.error('Error:', err);
         res.status(500).json({
@@ -132,6 +182,34 @@ const patientDataEntry = async (req, res) => {
         });
     }
 };
+
+// Schedule job to move data after 15 days
+cron.schedule('0 0 * * *', async () => {
+    try {
+        console.log('Running daily job to check for expired patient data...');
+        
+        const fifteenDaysAgo = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000);
+        
+        // Find records older than 15 days
+        const expiredPatients = await PatientModel.find({ createdAt: { $lte: fifteenDaysAgo } });
+
+        for (const patient of expiredPatients) {
+            // Save to RecoveryPatientModel
+            await RecoveryPatientModel.create({
+                ...patient.toObject(),
+                deletedAt: new Date(),
+            });
+
+            // Delete from PatientModel
+            await PatientModel.deleteOne({ _id: patient._id });
+            console.log(`Patient record with ID ${patient._id} moved to recovery.`);
+        }
+    } catch (err) {
+        console.error('Error during scheduled data move:', err);
+    }
+});
+
+module.exports = { patientDataEntry };
 
 
 
